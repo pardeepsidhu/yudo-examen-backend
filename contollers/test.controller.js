@@ -240,12 +240,12 @@ export const addQuestion = async (req, res) => {
       });
     }
     
-    if (!mongoose.Types.ObjectId.isValid(questionId)) {
-      return res.status(400).json({
-        success: false,
-        message: "Invalid question ID",
-      });
-    }
+    // if (!mongoose.Types.ObjectId.isValid(questionId)) {
+    //   return res.status(400).json({
+    //     success: false,
+    //     message: "Invalid question ID",
+    //   });
+    // }
     
     const testSeries = await TestSeries.findById(testSeriesId);
     
@@ -514,6 +514,47 @@ export const attendTestSeries = async (req, res) => {
     return res.status(500).json({
       success: false,
       message: "Failed to mark test series as attended",
+      error: error.message,
+    });
+  }
+};
+
+
+
+
+//  get test seris thout user permission to attent test
+export const getTestSeriesById = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid test series ID",
+      });
+    }
+    
+    const testSeries = await TestSeries.findById(id)
+      .populate("questions")
+      .populate("user", "name profile");
+    
+    if (!testSeries) {
+      return res.status(404).json({
+        success: false,
+        message: "Test series not found",
+      });
+    }
+    
+    return res.status(200).json({
+      success: true,
+      testSeries,
+    });
+  } catch (error) {
+    console.error("Error fetching test series:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to fetch test series",
       error: error.message,
     });
   }

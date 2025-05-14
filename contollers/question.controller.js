@@ -1,6 +1,7 @@
 import mongoose from "mongoose";
 import { Question } from "../models/question.model.js";
 import { TestSeries } from "../models/test.model.js";
+import { AttendedTest } from "../models/attenentTest.model.js";
 import { User } from "../models/user.model.js";
 
 export const createQuestion = async (req, res) => {
@@ -106,63 +107,6 @@ export const createQuestion = async (req, res) => {
 };
 
 
-// Get all questions created by the user
-export const getMyQuestions = async (req, res) => {
-  try {
-    const userId = req.user._id;
-    const page = parseInt(req.query.page) || 1;
-    const limit = parseInt(req.query.limit) || 10;
-    const skip = (page - 1) * limit;
-    const category = req.query.category || null;
-    const difficulty = req.query.difficulty || null;
-    const search = req.query.search || "";
-    
-    let query = { user: userId };
-    
-    // Add category filter if provided
-    if (category) {
-      query.category = category;
-    }
-    
-    // Add difficulty filter if provided
-    if (difficulty) {
-      query.difficulty = difficulty;
-    }
-    
-    // Add search functionality
-    if (search) {
-      query = {
-        ...query,
-        $or: [
-          { question: { $regex: search, $options: 'i' } },
-          { tags: { $regex: search, $options: 'i' } }
-        ]
-      };
-    }
-    
-    const questions = await Question.find(query)
-      .skip(skip)
-      .limit(limit)
-      .sort({ createdAt: -1 });
-    
-    const totalQuestions = await Question.countDocuments(query);
-    
-    return res.status(200).json({
-      success: true,
-      count: questions.length,
-      totalPages: Math.ceil(totalQuestions / limit),
-      currentPage: page,
-      questions
-    });
-  } catch (error) {
-    console.error("Error fetching questions:", error);
-    return res.status(500).json({
-      success: false,
-      message: "Failed to fetch questions",
-      error: error.message
-    });
-  }
-};
 
 // Get a single question by ID
 export const getQuestionById = async (req, res) => {
@@ -202,18 +146,17 @@ export const getQuestionById = async (req, res) => {
 // Update a question
 export const updateQuestion = async (req, res) => {
   try {
-   
-    const { _id } = req.body;
-    const bodyData = req.body;
-    delete bodyData._id;
-    if (!mongoose.Types.ObjectId.isValid(_id)) {
-      return res.status(400).json({
-        success: false,
-        message: "Invalid question ID"
-      });
-    }
+    const { id } = req.params;
+    const userId = req.user._id;
+    console.log(id+" "+userId)
+    // if (!mongoose.Types.ObjectId.isValid(id)) {
+    //   return res.status(400).json({
+    //     success: false,
+    //     message: "Invalid question ID"
+    //   });
+    // }
     
-    const question = await Question.findById(_id);
+    const question = await Question.findById(id);
     
     if (!question) {
       return res.status(404).json({
@@ -222,8 +165,6 @@ export const updateQuestion = async (req, res) => {
       });
     }
     
-    // Check if the user is the owner of the question
-
     
     // Validate if updating options and correctAnswer
     if (req.body.options && req.body.correctAnswer !== undefined) {
@@ -259,8 +200,8 @@ export const updateQuestion = async (req, res) => {
     }
     
     const updatedQuestion = await Question.findByIdAndUpdate(
-      _id,
-      { $set: bodyData },
+      id,
+      { $set: req.body },
       { new: true }
     );
     
@@ -283,13 +224,39 @@ export const updateQuestion = async (req, res) => {
 export const deleteQuestion = async (req, res) => {
   try {
     const { id } = req.params;
-    const {testId}=req.body.testId;
-
-    await TestSeries.updateOne(
-      {_id:testId},
+    const userId = req.user._id;
+    
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid question ID"
+      });
+    }
+    
+    const question = await Question.findById(id);
+    
+    if (!question) {
+      return res.status(404).json({
+        success: false,
+        message: "Question not found"
+      });
+    }
+    
+    // Check if the user is the owner of the question
+    if (question.user.toString() !== userId.toString()) {
+      return res.status(403).json({
+        success: false,
+        message: "You are not authorized to delete this question"
+      });
+    }
+    
+    // Remove the question from any test series it belongs to
+    await TestSeries.updateMany(
+      { questions: id },
       { $pull: { questions: id } }
     );
-
+    
+    // Delete the question
     await Question.findByIdAndDelete(id);
     
     return res.status(200).json({
@@ -433,3 +400,354 @@ export const bulkCreateQuestions = async (req, res) => {
     });
   }
 };
+
+
+
+export const getCurrentTestAttempt = async (req, res) => {
+  try {
+    const user = req.user._id;
+    const { testId } = req.params;
+    
+    if (!user) {
+      return res.status(401).json({
+        success: false,
+        message: "Authentication required"
+      });
+    }
+    
+    // Check if test exists and get its questions
+    const test = await TestSeries.findById(testId)
+      .populate({
+        path: 'questions',
+      })
+      .populate({
+        path: 'user'
+      });
+    
+    if (!test) {
+      return res.status(404).json({
+        success: false,
+        message: "Test not found"
+      });
+    }
+    
+    // Find existing test attempt
+let testAttempt = await AttendedTest.findOne({
+  user,
+  test: testId,
+  completed: false
+})
+  .populate({
+    path: 'questionsAttended.question'
+  })
+  .populate({
+    path: 'user'
+  })
+  .populate({
+    path: 'test',
+    populate: {
+      path: 'questions' // because `questions` is an array of ObjectIds directly
+    }
+  })
+  .populate({
+    path: 'testOwner'
+  });
+
+
+    
+    // If no test attempt exists, create a new one
+    if (!testAttempt) {
+      testAttempt = new AttendedTest({
+        user,
+        test: testId,
+        questionsAttended: [],
+        testOwner: test.user, // Fixed: use test.user as testOwner
+        startedAt: new Date()
+      });
+      await testAttempt.save();
+      
+      // Populate the newly created test attempt
+      testAttempt = await AttendedTest.findById(testAttempt._id)
+        .populate({
+          path: 'questionsAttended.question'
+        })
+        .populate({
+          path: 'user',
+          select: 'name email profile'
+        })
+        .populate({
+          path: 'test'
+        })
+        .populate({
+          path: "testOwner",
+          select: 'name email profile'
+        });
+    }
+    
+    // Get progress information
+    const totalQuestions = test.questions.length;
+    const answeredQuestions = testAttempt.questionsAttended.length;
+    const progress = totalQuestions > 0 ? (answeredQuestions / totalQuestions) * 100 : 0;
+    
+    // Get answered question IDs for frontend reference
+    const answeredQuestionIds = testAttempt.questionsAttended.map(q => 
+      q.question ? q.question._id.toString() : null
+    ).filter(Boolean);
+    
+    // Convert to plain object to allow adding properties
+    const testAttemptObj = testAttempt.toObject();
+    
+    return res.status(200).json({
+      success: true,
+      data: {
+        ...testAttemptObj,
+        totalQuestions,
+        answeredQuestions,
+        progress,
+        answeredQuestionIds
+      },
+      message: testAttempt.questionsAttended.length === 0 ? "New test attempt created" : "Existing test attempt found"
+    });
+  } catch (error) {
+    console.error("Error handling test attempt:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to handle test attempt",
+      error: error.message
+    });
+  }
+};
+
+export const answerQuestion = async (req, res) => {
+  try {
+    const user = req.user._id;
+    const { testId, questionId, right } = req.body;
+    
+    if (!user) {
+      return res.status(401).json({
+        success: false,
+        message: "Authentication required"
+      });
+    }
+    
+    // Validate input
+    if (!testId || !questionId || right === undefined) {
+      return res.status(400).json({
+        success: false, 
+        message: "testId, questionId, and right are required"
+      });
+    }
+    
+    // Check if test exists
+    const test = await TestSeries.findById(testId)
+      .populate({
+        path: 'questions',
+        select: 'title description options rightOption image video shorts solution'
+      })
+      .populate('user'); // Populate test creator for testOwner reference
+    
+    if (!test) {
+      return res.status(404).json({
+        success: false,
+        message: "Test not found"
+      });
+    }
+    
+    // Verify question belongs to test
+    const questionExists = test.questions.some(q => q._id.toString() === questionId);
+    if (!questionExists) {
+      return res.status(400).json({
+        success: false,
+        message: "Question does not belong to this test"
+      });
+    }
+    
+    // Find existing test attempt
+    let testAttempt = await AttendedTest.findOne({
+      user,
+      test: testId,
+      completed: false
+    }).populate({
+      path: 'questionsAttended.question',
+      select: 'title description options rightOption image video shorts solution'
+    });
+    
+    if (!testAttempt) {
+      // Create new test attempt if none exists
+      testAttempt = new AttendedTest({
+        user,
+        test: testId,
+        questionsAttended: [],
+        testOwner: test.user._id, // Set testOwner properly
+        startedAt: new Date()
+      });
+    }
+    
+    // Check if question already answered
+    const existingAnswerIndex = testAttempt.questionsAttended.findIndex(
+      q => q.question && q.question._id.toString() === questionId
+    );
+    
+    if (existingAnswerIndex !== -1) {
+      // Update existing answer
+      testAttempt.questionsAttended[existingAnswerIndex].isRight = right;
+    } else {
+      // Add new answer
+      testAttempt.questionsAttended.push({
+        question: questionId,
+        isRight: right
+      });
+    }
+    
+    // Calculate score
+    const correctAnswers = testAttempt.questionsAttended.filter(q => q.isRight).length;
+    testAttempt.score = correctAnswers;
+    
+    // Check if all questions are answered
+    const allQuestionsAnswered = test.questions.length === testAttempt.questionsAttended.length;
+    if (allQuestionsAnswered) {
+      testAttempt.completed = true;
+      testAttempt.completedAt = new Date();
+      
+      // Calculate time spent in seconds
+      const startTime = new Date(testAttempt.startedAt).getTime();
+      const endTime = new Date(testAttempt.completedAt).getTime();
+      testAttempt.timeSpent = Math.floor((endTime - startTime) / 1000);
+      
+      // Update user's attended tests
+      await User.findByIdAndUpdate(user, {
+        $addToSet: { attended: testId }
+      });
+    }
+    
+    await testAttempt.save();
+    
+    // Get progress information
+    const totalQuestions = test.questions.length;
+    const answeredQuestions = testAttempt.questionsAttended.length;
+    const progress = totalQuestions > 0 ? (answeredQuestions / totalQuestions) * 100 : 0;
+    
+    // Get answered question IDs for frontend reference
+    const answeredQuestionIds = testAttempt.questionsAttended
+      .map(q => q.question ? q.question._id.toString() : null)
+      .filter(Boolean);
+    
+    // Convert to object to allow adding custom properties to response
+    const testAttemptObj = testAttempt.toObject();
+    
+    return res.status(200).json({
+      success: true,
+      message: "Answer recorded successfully",
+      data: {
+        testAttempt: testAttemptObj,
+        test: {
+          _id: test._id,
+          title: test.title,
+          description: test.description,
+          questions: test.questions,
+          totalQuestions,
+          answeredQuestions,
+          progress,
+          answeredQuestionIds
+        },
+        progress: {
+          totalQuestions,
+          answeredQuestions,
+          progress,
+          correctAnswers,
+          score: testAttempt.score
+        },
+        isCompleted: testAttempt.completed
+      }
+    });
+   
+  } catch (error) {
+    console.error("Error recording answer:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to record answer",
+      error: error.message
+    });
+  }
+};
+
+export const getTestResults = async (req, res) => {
+  try {
+    const user = req.user._id;
+    const { testId } = req.params;
+
+    if (!user) {
+      return res.status(401).json({
+        success: false,
+        message: "Authentication required"
+      });
+    }
+
+   
+  let testAttempt = await AttendedTest.findOne({
+      user,
+      test: testId,
+      completed: false
+    }).populate({
+      path: 'questionsAttended.question',
+      select: 'title description options rightOption image video shorts solution'
+    });
+    
+    if (!testAttempt) {
+      return res.status(404).json({
+        success: false,
+        message: "Test attempt not found"
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      data: {
+        ...testAttempt.toObject(),
+        percentageScore: testAttempt.percentageScore
+      }
+    });
+
+  } catch (error) {
+    console.error("Error fetching test results:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to fetch test results",
+      error: error.message
+    });
+  }
+};
+
+export const getUserTestHistory = async (req, res) => {
+  try {
+    const user = req.user._id;
+
+    if (!user) {
+      return res.status(401).json({
+        success: false,
+        message: "Authentication required"
+      });
+    }
+
+    const testHistory = await AttendedTest.find({ user })
+      .populate({
+        path: 'test',
+        select: 'title description'
+      })
+      .sort({ completedAt: -1 });
+
+    return res.status(200).json({
+      success: true,
+      data: testHistory
+    });
+
+  } catch (error) {
+    console.error("Error fetching test history:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to fetch test history",
+      error: error.message
+    });
+  }
+};
+

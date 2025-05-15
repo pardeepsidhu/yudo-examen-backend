@@ -341,3 +341,27 @@ export const resetPassLink = async(req,res)=>{
   }
 }
 
+
+export const getMyProfile = async (req, res) => {
+  try {
+    // Assuming you have middleware that sets req.user._id from the auth token
+    const userId = req.user?._id;
+    if (!userId) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+
+    const user = await User.findById(userId).select('-password -otp');
+    if (!user) {
+      return res.status(404).json({ error: "User not found" });
+    }
+
+    return res.status(200).json({
+      success: true,
+      user
+    });
+  } catch (error) {
+    console.error("Error fetching profile:", error);
+    return res.status(500).json({ error: "Failed to fetch profile" });
+  }
+};
+

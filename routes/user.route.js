@@ -1,5 +1,6 @@
 import { Router } from "express";
-import { googleLogin, login, resetPassLink, signup, verifyOtp } from "../contollers/user.controler.js";
+import { getMyProfile, googleLogin, login, resetPassLink, signup, verifyOtp } from "../contollers/user.controler.js";
+import { auth } from "../middleware/authentication.js";
 const router=Router();
 
 
@@ -13,6 +14,7 @@ router.post("/verify",verifyOtp)
 router.post("/login",login)
 router.post("/google",googleLogin)
 router.post("/resetPassLink",resetPassLink)
+router.get("/getMyProfile", auth,getMyProfile)
 
 
 export default router;

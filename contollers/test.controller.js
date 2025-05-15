@@ -1,3 +1,4 @@
+import { AttendedTest } from "../models/attenentTest.model.js";
 import { TestSeries } from "../models/test.model.js";
 import { User } from "../models/user.model.js";
 import mongoose from "mongoose";
@@ -559,3 +560,95 @@ export const getTestSeriesById = async (req, res) => {
     });
   }
 };
+
+
+
+export const getMyAllTestAttended = async (req, res) => {
+  try {
+    const userId = req.user._id;
+
+    // Find the user and populate attended test series
+    const tests = await AttendedTest.find({user:userId}).populate({
+     path: 'user', select: 'name profile' 
+    })
+    .populate({
+     path: 'test'
+    });
+
+    if (!tests) {
+      return res.status(404).json({
+        success: false,
+        message: "Tests not found",
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      count: tests.length,
+      testSeries: tests,
+    });
+  } catch (error) {
+    console.error("Error fetching attended test series:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to fetch attended test series",
+      error: error.message,
+    });
+  }
+};
+
+
+
+// Delete a test series (by owner)
+export const deleteMyTest = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const userId = req.user._id;
+
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid test series ID",
+      });
+    }
+
+    const testSeries = await TestSeries.findById(id);
+
+    if (!testSeries) {
+      return res.status(404).json({
+        success: false,
+        message: "Test series not found",
+      });
+    }
+
+    // Check if the user is the owner of the test series
+    if (testSeries.user.toString() !== userId.toString()) {
+      return res.status(403).json({
+        success: false,
+        message: "You are not authorized to delete this test series",
+      });
+    }
+
+    // Remove test series from user's services
+    await User.findByIdAndUpdate(
+      userId,
+      { $pull: { services: testSeries._id } }
+    );
+
+    // Delete the test series
+    await TestSeries.findByIdAndDelete(id);
+
+    return res.status(200).json({
+      success: true,
+      message: "Test series deleted successfully",
+    });
+  } catch (error) {
+    console.error("Error deleting test series:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to delete test series",
+      error: error.message,
+    });
+  }
+};
+

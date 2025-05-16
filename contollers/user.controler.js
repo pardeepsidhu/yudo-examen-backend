@@ -365,3 +365,42 @@ export const getMyProfile = async (req, res) => {
   }
 };
 
+
+
+export const updateProfile = async (req, res) => {
+  try {
+    // Assuming you have middleware that sets req.user._id from the auth token
+    const userId = req.user?._id;
+    if (!userId) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+
+    const { name, profile } = req.body;
+    if (!name && !profile) {
+      return res.status(400).json({ error: "Nothing to update" });
+    }
+
+    const updateFields = {};
+    if (name) updateFields.name = name;
+    if (profile) updateFields.profile = profile;
+
+    const updatedUser = await User.findByIdAndUpdate(
+      userId,
+      { $set: updateFields },
+      { new: true, select: '-password -otp' }
+    );
+
+    if (!updatedUser) {
+      return res.status(404).json({ error: "User not found" });
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: "Profile updated successfully",
+      user: updatedUser
+    });
+  } catch (error) {
+    console.error("Error updating profile:", error);
+    return res.status(500).json({ error: "Failed to update profile" });
+  }
+};

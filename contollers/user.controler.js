@@ -3,6 +3,9 @@ import jwt from 'jsonwebtoken';
 import { User } from "../models/user.model.js";
 import {OAuth2Client} from "google-auth-library"
 import { sendEmail } from './email.contoller.js';
+import { AttendedTest } from "../models/attenentTest.model.js";
+import { TestSeries } from "../models/test.model.js";
+
 
 export const signup = async (req, res) => {
   try {
@@ -402,5 +405,41 @@ export const updateProfile = async (req, res) => {
   } catch (error) {
     console.error("Error updating profile:", error);
     return res.status(500).json({ error: "Failed to update profile" });
+  }
+};
+
+
+
+
+export const getUserProfileAndTests = async (req, res) => {
+  try {
+    // Get userId from auth middleware
+    
+    const userId = req.params?.id;
+    if (!userId) {
+      return res.status(401).json({ error: "please provide valid user id" });
+    }
+
+    // Get user info (excluding password and otp)
+    const user = await User.findById(userId).select('-password -otp');
+    if (!user) {
+      return res.status(404).json({ error: "User not found" });
+    }
+
+    // Get test series created by user
+    const testSeries = await TestSeries.find({ user: userId });
+
+    // Get attended tests by user
+    const attendedTests = await AttendedTest.find({ user: userId });
+
+    return res.status(200).json({
+      success: true,
+      user,
+      testSeries,
+      attendedTests,
+    });
+  } catch (error) {
+    console.error("Error fetching user profile and tests:", error);
+    return res.status(500).json({ error: "Failed to fetch user info and tests" });
   }
 };

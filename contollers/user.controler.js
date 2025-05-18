@@ -35,7 +35,7 @@ export const signup = async (req, res) => {
     }
     
     // Hash the password before saving
-    const hashedPassword = await bcrypt.hash(password, 10);
+    const hashedPassword = await bcrypt.hash(password, 8);
     
     // Generate OTP
     const otp = Math.floor(1000 + Math.random() * 9000).toString();
@@ -192,10 +192,12 @@ export const login = async (req, res) => {
 
     // Find the user by email
     const user = await User.findOne({ email });
-    if (!user || user.otp !== 'verified') {
+    if (!user) {
       return res.status(404).json({ error: "User not found" });
     }
-
+if ( user.otp !== 'verified' && user.googleId == null) {
+      return res.status(404).json({ error: "User not found" });
+    }
     // Compare entered password with hashed password
     const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch) {
@@ -288,7 +290,7 @@ export const resetPassLink = async(req,res)=>{
       let token = jwt.sign({userId:user._id},process.env.JWT_SECRET,{
     expiresIn:"10m"
     })
-    const resetLink = `http://localhost:3000/login?token=${token}`
+    const resetLink = `https://yudo-examen.vercel.app/login?token=${token}`
       const mailBody = {
         from: process.env.EMAIL,
         to: email,
@@ -443,3 +445,40 @@ export const getUserProfileAndTests = async (req, res) => {
     return res.status(500).json({ error: "Failed to fetch user info and tests" });
   }
 };
+
+
+
+export const resetPassword = async (req, res) => {
+    try {
+      const token = req.body.token;
+      const newPassword = req.body.password;
+  
+      // 1. Verify JWT and check expiry
+      const data = jwt.verify(token, process.env.JWT_SECRET); // Throws error if expired
+      const userId = data.userId;
+    console.log(userId)
+      const user = await User.findById(userId);
+      if (!user) {
+        return res.status(404).json({ error: "User not found." });
+      }
+  
+      // 3. Hash the new password
+    
+      const hashedPassword = await bcrypt.hash(newPassword, 8);
+  
+      // 4. Update the user's password
+      user.password = hashedPassword;
+      await user.save();
+  
+
+      res.status(200).json({ success: true,
+        message: "Password successfully reset." 
+      });
+    } catch (error) {
+      console.error(error);
+      if (error.name === 'TokenExpiredError') {
+        return res.status(400).json({ error: "Reset link has expired." });
+      }
+      res.status(400).json({ error: "Some error occurred" });
+    }
+  };

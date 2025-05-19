@@ -442,7 +442,7 @@ export const getAllTestSeries = async (req, res) => {
     }
     
     const testSeries = await TestSeries.find(query)
-      .populate("user", "name profile")
+      .populate("user", "name profile _id")
       .skip(skip)
       .limit(limit)
       .sort({ createdAt: -1 });

@@ -11,6 +11,7 @@ const auth = async (req,res,next)=>{
         req.user = userId;
         next();
     } catch (error) {
+        console.log(error)
         res.status(400).send({error:"some internal error accured while authentication"})
     }
 }
